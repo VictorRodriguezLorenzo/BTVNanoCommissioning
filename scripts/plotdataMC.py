@@ -161,6 +161,9 @@ elif "semilep" in args.phase:
 elif "dilep" in args.phase:
     input_txt = r"t$\bar{t}$ dileptonic"
     nj = 2
+elif "had" in args.phase:
+    input_txt = r"t$\bar{t}$ hadronic"
+    nj = 6
 if (
     "njet" in args.variable.split(",")
     or "nbjet" in args.variable.split(",")
@@ -175,6 +178,8 @@ elif "QCD" == args.phase:
     input_txt = input_txt + ""
 elif "ttdilep_sf" == args.phase:
     input_txt = input_txt + " (e$\mu$)"
+elif "tthad_sf" == args.phase:
+    input_txt = input_txt + "(e$\mu$)"
 else:
     input_txt = input_txt + " ($\mu$)"
 if "ctag" in args.phase and "DY" not in args.phase:
