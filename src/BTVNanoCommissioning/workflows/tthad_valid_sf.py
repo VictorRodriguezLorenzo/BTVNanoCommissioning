@@ -52,11 +52,11 @@ class NanoProcessor(processor.ProcessorABC):
 
     def process(self, events):
         events = missing_branch(events)
-        shifts = common_shifts(self, events)
+        vetoed_events, shifts = common_shifts(self, events)
 
-        print(collections)
+        #print(collections)
         return processor.accumulate(
-            self.process_shift(update(events, collections), name)
+            self.process_shift(update(vetoed_events, collections), name)
             for collections, name in shifts
         )
 
@@ -115,9 +115,9 @@ class NanoProcessor(processor.ProcessorABC):
 #        elif self._campaign == "Summer22EERun3":
 #            triggers = ['PFHT450_SixPFJet36_PFBTagDeepJet_1p59','PFHT400_SixPFJet32_DoublePFBTagDeepJet_2p94',] 
 #        else:
-        triggers = ["PFHT450_SixPFJet36_PFBTagDeepJet_1p59",
-                    "PFHT400_SixPFJet32_DoublePFBTagDeepJet_2p94",
-                    ]
+        triggers = ["PFHT450_SixPFJet36_PFBTagDeepJet_1p59"]#,
+                   # "PFHT400_SixPFJet32_DoublePFBTagDeepJet_2p94",
+                   # ]
         
         req_trig = HLT_helper(events, triggers)
         
@@ -137,26 +137,19 @@ class NanoProcessor(processor.ProcessorABC):
         req_ele = ak.count(events.Electron.pt, axis=1) == 0
 
 
-        ## Jet cuts
-        ## store jet index for PFCands, create mask on the jet index
-        jetsel = ak.fill_none(
-            jet_id(events, self._campaign)
-            & (
-                ak.all(
-                    events.Jet.metric_table(events.Muon) > 0.4,
-                    axis=2,
-                    mask_identity=True,
-                )
-            )
-            & (
-                ak.all(
-                    events.Jet.metric_table(events.Electron) > 0.4,
-                    axis=2,
-                    mask_identity=True,
-                )
-            ),
-            False,
-        )
+        # Jet cuts
+        # Correct JetID
+        jet_mask = jet_id(events, self._campaign)
+        
+        # Handle DeltaR with leptons
+        has_mu = ak.num(events.Muon) > 0
+        has_ele = ak.num(events.Electron) > 0
+        
+        dr_mu  = ~has_mu | ak.all(events.Jet.metric_table(events.Muon) > 0.4, axis=2)
+        dr_ele = ~has_ele | ak.all(events.Jet.metric_table(events.Electron) > 0.4, axis=2)
+        
+        jetsel = jet_mask & dr_mu & dr_ele
+        jetsel = ak.fill_none(jetsel, False)
         
         event_jet = events.Jet[jetsel]
         req_jets = ak.num(event_jet.pt) >= 6
@@ -170,7 +163,7 @@ class NanoProcessor(processor.ProcessorABC):
 
         bjet=event_jet[:,:2]
         bjet = bjet[bjet.btagDeepFlavB > 0.058]
-        req_bjets = ak.num(bjet.pt)==2
+        req_bjets = ak.num(bjet.pt)>=2
 
 
         event_level = (
@@ -178,6 +171,31 @@ class NanoProcessor(processor.ProcessorABC):
         )
         event_level = ak.fill_none(event_level, False)
         
+        
+
+
+        def count(mask):
+            # mask is a boolean array
+            return int(ak.sum(ak.fill_none(mask, False)))
+
+        n_all = len(events)
+        n_lumi = count(req_lumi)
+        n_trig = count(req_trig & req_lumi)
+        n_mu   = count(req_trig & req_lumi & req_muon)
+        n_ele  = count(req_trig & req_lumi & req_muon & req_ele)
+        n_jet  = count(req_trig & req_lumi & req_muon & req_ele & req_jets)
+        n_bjet = count(event_level)
+        
+        print(f"\n[DEBUG] Dataset: {dataset}, shift: {shift_name}")
+        print(f"  start        : {n_all}")
+        print(f"  lumi         : {n_lumi}")
+        print(f"  HLT          : {n_trig}")
+        print(f"  veto muons   : {n_mu}")
+        print(f"  veto electrons: {n_ele}")
+        print(f"  ≥6 jets      : {n_jet}")
+        print(f"  2 b-jets     : {n_bjet}")
+
+
         if len(events[event_level]) == 0:
             if self.isArray:
                 array_writer(
