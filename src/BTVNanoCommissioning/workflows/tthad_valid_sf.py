@@ -2,6 +2,7 @@ import collections, gc
 import os
 import uproot
 import numpy as np, awkward as ak
+import hist
 
 from coffea import processor
 from coffea.analysis_tools import Weights
@@ -115,19 +116,20 @@ class NanoProcessor(processor.ProcessorABC):
 #        elif self._campaign == "Summer22EERun3":
 #            triggers = ['PFHT450_SixPFJet36_PFBTagDeepJet_1p59','PFHT400_SixPFJet32_DoublePFBTagDeepJet_2p94',] 
 #        else:
-        triggers = ["PFHT450_SixPFJet36_PFBTagDeepJet_1p59"]#,
-                   # "PFHT400_SixPFJet32_DoublePFBTagDeepJet_2p94",
-                   # ]
-        
+        triggers = [
+            "PFHT450_SixPFJet36_PFBTagDeepJet_1p59",
+            "PFHT400_SixPFJet32_DoublePFBTagDeepCSV_2p94",
+        ]
+
         req_trig = HLT_helper(events, triggers)
-        
 
         ## Muon cuts
         # muon twiki: https://twiki.cern.ch/twiki/bin/view/CMS/SWGuideMuonIdRun2
         events.Muon = events.Muon[
             (events.Muon.pt > 20) & mu_idiso(events, self._campaign)
         ]
-        req_muon = ak.count(events.Muon.pt, axis=1) == 0
+        n_muons = ak.count(events.Muon.pt, axis=1)
+        req_muon = n_muons == 0
 
         ## Electron cuts
         # electron twiki: https://twiki.cern.ch/twiki/bin/viewauth/CMS/CutBasedElectronIdentificationRun2
@@ -138,7 +140,7 @@ class NanoProcessor(processor.ProcessorABC):
 
 
         # Jet cuts
-        # Correct JetID
+        # Using JetID
         jet_mask = jet_id(events, self._campaign)
         
         # Handle DeltaR with leptons
@@ -154,47 +156,18 @@ class NanoProcessor(processor.ProcessorABC):
         event_jet = events.Jet[jetsel]
         req_jets = ak.num(event_jet.pt) >= 6
 
-        # Other b-tagging cuts
-#        event_bjet = events.Jet[
-#            bjet_id(events, self._campaign)
-#        ]
+        bjet = event_jet[event_jet.btagDeepFlavB > 0.058] #T=0.7183
+        req_bjets = ak.num(bjet.pt) >= 2 
 
-#        req_bjets = ak.sum(event_jet.btagDeepFlavB > 0.058, axis=-1) >= 2 #T=0.7183
-
-        bjet=event_jet[:,:2]
-        bjet = bjet[bjet.btagDeepFlavB > 0.058]
-        req_bjets = ak.num(bjet.pt)>=2
+        event_weights = (
+            ak.to_numpy(events.genWeight) if not isRealData else np.ones(len(events))
+        )
 
 
         event_level = (
             req_trig & req_lumi & req_muon & req_ele & req_jets & req_bjets
         )
         event_level = ak.fill_none(event_level, False)
-        
-        
-
-
-        def count(mask):
-            # mask is a boolean array
-            return int(ak.sum(ak.fill_none(mask, False)))
-
-        n_all = len(events)
-        n_lumi = count(req_lumi)
-        n_trig = count(req_trig & req_lumi)
-        n_mu   = count(req_trig & req_lumi & req_muon)
-        n_ele  = count(req_trig & req_lumi & req_muon & req_ele)
-        n_jet  = count(req_trig & req_lumi & req_muon & req_ele & req_jets)
-        n_bjet = count(event_level)
-        
-        print(f"\n[DEBUG] Dataset: {dataset}, shift: {shift_name}")
-        print(f"  start        : {n_all}")
-        print(f"  lumi         : {n_lumi}")
-        print(f"  HLT          : {n_trig}")
-        print(f"  veto muons   : {n_mu}")
-        print(f"  veto electrons: {n_ele}")
-        print(f"  ≥6 jets      : {n_jet}")
-        print(f"  2 b-jets     : {n_bjet}")
-
 
         if len(events[event_level]) == 0:
             if self.isArray:
@@ -225,7 +198,8 @@ class NanoProcessor(processor.ProcessorABC):
         
         # Store selected b-jets
         pruned_ev["SelBJet"] = bjet[event_level]
-        
+        pruned_ev["nbjet"] = ak.count(pruned_ev.SelBJet.pt, axis=1)
+
         # If PFCands exists, create a dict of PFCands per jet index
         if "PFCands" in events.fields:
             pruned_ev["JetPFCandsAll"] = {}
