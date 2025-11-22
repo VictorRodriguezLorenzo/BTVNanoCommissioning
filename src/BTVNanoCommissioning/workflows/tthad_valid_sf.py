@@ -3,6 +3,7 @@ import os
 import uproot
 import numpy as np, awkward as ak
 import hist
+import re
 
 from coffea import processor
 from coffea.analysis_tools import Weights
@@ -143,7 +144,6 @@ class NanoProcessor(processor.ProcessorABC):
             """
             Return the PFHT trigger paths for a given data-taking year and dataset name.
             """
-            # ---- Extract run letter directly here ----
             run_letter = None
         
             # Primary pattern: Run2017B, Run2018A, etc.
@@ -174,6 +174,8 @@ class NanoProcessor(processor.ProcessorABC):
                 "PFHT450_SixPFJet36_PFBTagDeepJet_1p59",
             ]
 
+        
+        triggers = pfht_triggers(self._year, dataset)
         req_trig = HLT_helper(events, triggers)
 
         ## Muon cuts

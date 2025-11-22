@@ -344,8 +344,6 @@ def load_SF(year, campaign, syst=False):
                 correct_map["JME"] = correctionlib.CorrectionSet.from_file(
                     f"/cvmfs/cms-griddata.cern.ch/cat/metadata/JME/{campaign_map()[campaign]}/latest/jet_jerc.json.gz"
                 )
-                for k in correct_map["JME"].compound.keys():
-                    print(k)
                 correct_map["JME_cfg"] = config[campaign]["JME"]
                 for dataset in correct_map["JME_cfg"].keys():
                     if (
@@ -581,23 +579,6 @@ def JME_shifts(
     if "JME" in correct_map.keys():
         ## correctionlib
         if "JME_cfg" in correct_map.keys():
-        #    if isRealData:
-        #        jecname = [
-        #            v
-        #            for k, v in correct_map["JME_cfg"].items()
-        #            if k in events.metadata["dataset"]
-        #        ]
-        #        if len(jecname) > 1:
-        #            raise ValueError("Multiple uncertainties match to this era")
-        #        elif len(jecname) == 0:
-        #            raise ValueError(
-        #                "Available JEC variations in this era are not compatible with this file. Did you choose the correct dataset-era combination?"
-        #            )
-        #        else:
-        #            jecname = jecname[0] + "_DATA"
-        #    else:
-        #        jecname = correct_map["JME_cfg"]["MC"].split(" ")[0] + "_MC"
-        #        jrname = correct_map["JME_cfg"]["MC"].split(" ")[1] + "_MC"
             if isRealData:
                 jecname = [
                     v
@@ -612,10 +593,6 @@ def JME_shifts(
                     )
                 else:
                     jecname = jecname[0] + "_DATA"
-            
-                # ✅ Force post-EE Run E/F/G to use V3 JEC corrections
-                if "22Sep2023" in jecname and any(run in jecname for run in ["RunE", "RunF", "RunG"]):
-                    jecname = jecname.replace("V2", "V3")
             else:
                 jecname = correct_map["JME_cfg"]["MC"].split(" ")[0] + "_MC"
                 jrname = correct_map["JME_cfg"]["MC"].split(" ")[1] + "_MC"
@@ -638,7 +615,9 @@ def JME_shifts(
 
             ## flatten jets
             j, nj = ak.flatten(nocorrjet), ak.num(nocorrjet)
-
+            
+            jecname = jecname.replace("V2", "V3")
+            print(jecname)
             # JEC
             JECcorr = correct_map["JME"].compound[f"{jecname}_L1L2L3Res_AK4PFPuppi"]
             JEC_input = get_corr_inputs(j, JECcorr)
@@ -1171,13 +1150,10 @@ def EGM_shifts(shifts, correct_map, events, isRealData, systematic=False):
     ele_pt = ak.flatten(ele.pt)
     ele_seedGain = ak.flatten(ele.seedGain)
     
-    for k in correct_map["electronSS"].compound.keys():
-        print(k)
-
     if isRealData:  # scale correction is only applied to data
-        scale_evaluator = correct_map["electronSS"].compound["Scale"]
-#            correct_map["electronSS_cfg"][0]
-#        ]
+        scale_evaluator = correct_map["electronSS"].compound[
+            correct_map["electronSS_cfg"][0]
+        ]
         if "Summer24" in correct_map["campaign"]:
             scale = scale_evaluator.evaluate(
                 "scale", events_run, ele_etaSC, ele_r9, ele_pt, ele_seedGain
@@ -1194,12 +1170,12 @@ def EGM_shifts(shifts, correct_map, events, isRealData, systematic=False):
         scale = ak.unflatten(scale, n_ele)
         ele_pt_corr = scale * ele.pt
     else:  # smear correction is only applied to MC
-        smear_and_syst_evaluator = correct_map["electronSS"].compound["Scale"]#[
-#            correct_map["electronSS_cfg"][1]
-#        ]
+        smear_and_syst_evaluator = correct_map["electronSS"][
+            correct_map["electronSS_cfg"][1]
+        ]
         smear = smear_and_syst_evaluator.evaluate(
-            "smear", ele_pt, ele_r9, np.abs(ele_etaSC)
-        )
+                "smear", ele_pt, ele_r9, np.abs(ele_etaSC)
+                )
         smear = ak.unflatten(smear, n_ele)
         # since the smearing is stochastic, a random number is needed for each event
         rng = np.random.default_rng(seed=125)
@@ -1564,6 +1540,9 @@ def btagSFs(jet, correct_map, weights, SFtype, syst=False):
 
 def eleSFs(ele, correct_map, weights, syst=True, isHLT=False):
     allele = ele if ele.ndim > 1 else ak.singletons(ele)
+    if not ak.any(ak.num(ele, axis=1) > 0):    
+        # No electrons in any event, nothing to do
+        return
 
     for sf in correct_map["EGM_cfg"].keys():
         ## Only apply SFs for lepton pass HLT filter
@@ -1966,6 +1945,10 @@ def eleSFs(ele, correct_map, weights, syst=True, isHLT=False):
 
 def muSFs(mu, correct_map, weights, syst=False, isHLT=False):
     allmu = mu if mu.ndim > 1 else ak.singletons(mu)
+    if not ak.any(ak.num(mu, axis=1) > 0):    
+        # No muons in any event, nothing to do
+        return    
+
     for sf in correct_map["MUO_cfg"].keys():
         ## Only apply SFs for lepton pass HLT filter
         if not isHLT and "HLT" in sf:
